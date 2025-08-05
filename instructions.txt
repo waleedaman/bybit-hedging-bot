@@ -1,0 +1,48 @@
+# Setup and Run Instructions
+
+## 1. (Optional) Setup Virtual Environment using Anaconda
+*This is recommended to avoid conflicts with other projects.*
+Install Anaconda from: https://www.anaconda.com/download
+Steps:
+1. Open Anaconda Prompt or your terminal.
+2. Navigate to the project root directory: `cd c:\code\bybit\bybit-hedging-bot`
+3. Create the conda environment:
+   ```bash
+   conda create --name hedging_bot_env python=3.9
+   ```
+4. When prompted, proceed by typing `y`.
+
+## 2. Activate Virtual Environment
+Steps:
+1. In your terminal, run:
+   ```bash
+   conda activate hedging_bot_env
+   ```
+   You should see `(hedging_bot_env)` at the beginning of your terminal prompt.
+
+## 3. Setup Environment Variables
+Steps:
+1. Create a file named `.env` in the project root directory (`c:\code\bybit\bybit-hedging-bot`).
+2. Add your Bybit API Key and Secret to the `.env` file like this:
+   ```
+   BYBIT_API_KEY="YOUR_API_KEY_HERE"
+   BYBIT_API_SECRET="YOUR_API_SECRET_HERE"
+   ```
+
+## 4. Install Requirements
+Steps:
+1. Make sure your virtual environment is activated.
+2. From the project root directory, run the following command to install the required Python packages:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+## 5. Run the Main Script
+Steps:
+1. Make sure your virtual environment is activated.
+2. Navigate to the project root directory if you are not already there.
+3. Run the script using the following command:
+   ```bash
+   python src/main.py
+   ```
+4. Follow the prompts in the terminal to configure and start the bot.
