@@ -1,48 +1,66 @@
-# Setup and Run Instructions
+# Windows Setup and Run Instructions
 
-## 1. (Optional) Setup Virtual Environment using Anaconda
-*This is recommended to avoid conflicts with other projects.*
-Install Anaconda from: https://www.anaconda.com/download
-Steps:
-1. Open Anaconda Prompt or your terminal.
-2. Navigate to the project root directory: `cd c:\code\bybit\bybit-hedging-bot`
-3. Create the conda environment:
-   ```bash
-   conda create --name hedging_bot_env python=3.9
-   ```
-4. When prompted, proceed by typing `y`.
+This guide will walk you through setting up the necessary software and running the hedging bot on a Windows system.
 
-## 2. Activate Virtual Environment
-Steps:
-1. In your terminal, run:
-   ```bash
-   conda activate hedging_bot_env
-   ```
-   You should see `(hedging_bot_env)` at the beginning of your terminal prompt.
+### Step 1: Install Python
 
-## 3. Setup Environment Variables
-Steps:
-1. Create a file named `.env` in the project root directory (`c:\code\bybit\bybit-hedging-bot`).
-2. Add your Bybit API Key and Secret to the `.env` file like this:
-   ```
-   BYBIT_API_KEY="YOUR_API_KEY_HERE"
-   BYBIT_API_SECRET="YOUR_API_SECRET_HERE"
-   ```
+1.  **Download Python:** Go to the official Python website: https://www.python.org/downloads/
+    *   Download the latest stable version of Python (e.g., Python 3.9+).
 
-## 4. Install Requirements
-Steps:
-1. Make sure your virtual environment is activated.
-2. From the project root directory, run the following command to install the required Python packages:
-   ```bash
-   pip install -r requirements.txt
-   ```
+2.  **Run the Installer:** Open the downloaded installer file.
+    *   **IMPORTANT:** On the first screen of the installer, make sure to check the box at the bottom that says **"Add Python to PATH"**. This will allow you to run Python from the command line easily.
+    *   Click "Install Now" and follow the on-screen prompts to complete the installation.
 
-## 5. Run the Main Script
-Steps:
-1. Make sure your virtual environment is activated.
-2. Navigate to the project root directory if you are not already there.
-3. Run the script using the following command:
-   ```bash
-   python src/main.py
-   ```
-4. Follow the prompts in the terminal to configure and start the bot.
+### Step 2: Verify the Installation
+
+1.  **Open Command Prompt:** Press the `Windows Key`, type `cmd`, and press Enter.
+
+2.  **Check Python Version:** In the Command Prompt window, type the following command and press Enter:
+    ```
+    python --version
+    ```
+    You should see the Python version you just installed.
+
+3.  **Check Pip Version:** Pip is Python's package installer and is included with Python. Check its version by typing:
+    ```
+    pip --version
+    ```
+    You should see a version number for pip. If you get an error in either of these steps, it's likely that Python was not added to your system's PATH correctly.
+
+### Step 3: Install Dependencies
+
+1.  **Navigate to Project Directory:** In the Command Prompt, navigate to the root folder of the bot project.
+    ```
+    cd c:\code\bybit\bybit-hedging-bot
+    ```
+
+2.  **Install Packages:** Run the following command to install all the required Python packages listed in the `requirements.txt` file.
+    ```
+    pip install -r requirements.txt
+    ```
+    This will download and install `pybit` and other necessary libraries.
+
+### Step 4: Configure API Keys
+
+1.  **Create .env File:** In the project's root directory (`c:\code\bybit\bybit-hedging-bot`), create a new file named `.env`.
+
+2.  **Add Your Keys:** Open the `.env` file with a text editor (like Notepad) and add your Bybit API key and secret in the following format. Replace the placeholder text with your actual keys.
+    ```
+    API_KEY="YOUR_API_KEY_HERE"
+    API_SECRET="YOUR_API_SECRET_HERE"
+    ```
+    Save and close the file.
+
+### Step 5: Run the Bot
+
+1.  **Navigate to Project Directory:** If you closed your Command Prompt, open a new one and navigate back to the project folder.
+    ```
+    cd c:\code\bybit\bybit-hedging-bot
+    ```
+
+2.  **Start the Bot:** Run the main script using the following command:
+    ```
+    python src/main.py
+    ```
+
+3.  **Follow Prompts:** The bot will start and prompt you for information like the trading symbol, prices, and leverage. Enter the required details to begin hedging.
