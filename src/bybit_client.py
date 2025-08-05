@@ -1,11 +1,51 @@
 import logging
-from pybit.unified_trading import HTTP
+import time
+from pybit.unified_trading import HTTP, WebSocket
 
 class BybitClient:
-    def __init__(self, api_key, api_secret, testnet=False):
-        self.client = HTTP(demo=True, testnet=testnet, api_key=api_key, api_secret=api_secret, recv_window=10000)
+    def __init__(self, demo, api_key, api_secret, testnet=False):
+        self.client = HTTP(demo=demo, testnet=testnet, api_key=api_key, api_secret=api_secret, recv_window=10000)
         self.is_leverage = False
+        self.ws_client = None
+        self.last_price = None
+        self.testnet = testnet
         
+    def start_websocket(self, symbol, callback):
+        """Initializes and starts the WebSocket connection."""
+        logging.info(f"Starting WebSocket stream for {symbol}...")
+        self.ws_client = WebSocket(
+            testnet=self.testnet,
+            channel_type="linear",
+        )
+        self.ws_client.ticker_stream(
+            symbol=symbol,
+            callback=callback
+        )
+
+
+    def get_market_price(self, symbol):
+        """
+        Retrieves the last market price received from the WebSocket.
+        Falls back to HTTP if WebSocket price is not available.
+        """
+        if self.last_price:
+            return self.last_price
+        
+        # Fallback to HTTP if WebSocket hasn't provided a price yet
+        logging.warning("WebSocket price not available, falling back to HTTP GET request.")
+        try:
+            response = self.client.get_tickers(category="linear", symbol=symbol)
+            if response.get('retCode') == 0 and response.get('result', {}).get('list'):
+                price = float(response['result']['list'][0]['lastPrice'])
+                self.last_price = price # Store it for next time
+                return price
+            else:
+                logging.error(f"Error getting market price from Bybit: {response.get('retMsg', 'Unknown error')}")
+                return None
+        except Exception as e:
+            logging.error(f"Exception when retrieving market price for {symbol}: {e}")
+            return None
+
     def set_leverage(self, symbol, leverage):
         try:
             response = self.client.set_leverage(
@@ -65,18 +105,6 @@ class BybitClient:
             return response
         except Exception as e:
             logging.error(f"Error placing order for {symbol}: {e}")
-            return None
-
-    def get_market_price(self, symbol):
-        try:
-            response = self.client.get_tickers(category="linear", symbol=symbol)
-            if response.get('retCode') == 0 and response.get('result', {}).get('list'):
-                return float(response['result']['list'][0]['lastPrice'])
-            else:
-                logging.error(f"Error getting market price from Bybit: {response.get('retMsg', 'Unknown error')}")
-                return None
-        except Exception as e:
-            logging.error(f"Exception when retrieving market price for {symbol}: {e}")
             return None
 
     def get_position_info(self, symbol, positionIdx):

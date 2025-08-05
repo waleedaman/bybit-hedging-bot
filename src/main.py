@@ -30,7 +30,7 @@ if __name__ == "__main__":
             if not 0 <= leverage <= 100:
                 raise ValueError("Leverage must be between 0 and 100.")
 
-            client = BybitClient(api_key=API_KEY, api_secret=API_SECRET, testnet=testnet)
+            client = BybitClient(demo=True, api_key=API_KEY, api_secret=API_SECRET, testnet=testnet)
             strategy = HedgingStrategy(client, symbol, long_price, short_price, hedge_amount_usdt, leverage)
             
             # Initial setup
