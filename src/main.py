@@ -25,13 +25,28 @@ if __name__ == "__main__":
             short_price = float(input("Enter the price to open a short position: "))
             long_price = float(input("Enter the price to open a long position: "))
             hedge_amount_usdt = float(input("Enter the amount to hedge in USDT: "))
-            leverage = int(input("Enter leverage (1-100): "))
+            leverage = int(input("Enter leverage (0-100, 0 for no change): "))
 
             if not 0 <= leverage <= 100:
                 raise ValueError("Leverage must be between 0 and 100.")
 
-            client = BybitClient(demo=True, api_key=API_KEY, api_secret=API_SECRET, testnet=testnet)
-            strategy = HedgingStrategy(client, symbol, long_price, short_price, hedge_amount_usdt, leverage)
+            while True:
+                mode = input("Select mode: (L) Manage Long, (S) Manage Short: ").upper()
+                if mode in ['L', 'S']:
+                    break
+                else:
+                    logging.warning("Invalid choice. Please enter L or S.")
+
+            client = BybitClient(api_key=API_KEY, api_secret=API_SECRET, testnet=testnet)
+            strategy = HedgingStrategy(
+                client, 
+                symbol, 
+                long_price, 
+                short_price, 
+                hedge_amount_usdt, 
+                leverage,
+                mode
+            )
             
             # Initial setup
             strategy.initial_setup()

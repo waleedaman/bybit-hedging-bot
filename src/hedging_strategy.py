@@ -3,17 +3,18 @@ import time
 import queue
 
 class HedgingStrategy:
-    def __init__(self, client, symbol, long_price, short_price, hedge_amount_usdt, leverage):
+    def __init__(self, client, symbol, long_price, short_price, hedge_amount_usdt, leverage, mode):
         self.client = client
         self.symbol = symbol
         self.long_price = long_price
         self.short_price = short_price
         self.hedge_amount_usdt = hedge_amount_usdt
         self.leverage = leverage
+        self.mode = mode
         self.qty = 0
         self.price_queue = queue.Queue()
-        self.long_position_open = False # Internal state tracking flag
-        self.long_position_size = 0.0   # Internal size tracking
+        self.managed_position_open = False # Generic flag for the position being managed
+        self.managed_position_size = 0.0   # Generic size for the managed position
 
     def _ws_price_handler(self, message):
         """Callback function to handle incoming WebSocket price updates."""
@@ -25,13 +26,12 @@ class HedgingStrategy:
             logging.error(f"Error processing WebSocket message: {e}")
 
     def initial_setup(self):
-        """Sets up WebSocket, leverage, quantity, and initial positions."""
-        logging.info("Performing initial setup...")
+        """Sets up WebSocket, leverage, quantity, and initial positions based on mode."""
+        logging.info(f"Performing initial setup for mode: {'Manage Long' if self.mode == 'L' else 'Manage Short'}")
         
-        # Start WebSocket stream in a background thread
         self.client.start_websocket(self.symbol, self._ws_price_handler)
         logging.info("Waiting for first price update from WebSocket...")
-        time.sleep(5) # Give WebSocket time to connect and receive first message
+        time.sleep(5)
 
         if 1 <= self.leverage <= 100:
             self.client.set_leverage(self.symbol, self.leverage)
@@ -45,27 +45,39 @@ class HedgingStrategy:
         self.qty = round((self.hedge_amount_usdt * self.leverage) / initial_price, 3)
         logging.info(f"Initial quantity calculated: {self.qty} {self.symbol}")
 
-        # Check and set initial state for short position
-        short_pos = self.client.get_position_info(self.symbol, positionIdx=2)
-        if short_pos['size'] == 0:
-            logging.info("No short position found. Opening initial short position.")
-            self.client.open_short_position(self.symbol, str(self.qty), initial_price)
-        else:
-            logging.info(f"Existing short position of size {short_pos['size']} found.")
+        if self.mode == 'L':
+            # --- Manage Long Mode: Open Short Hedge ---
+            hedge_pos = self.client.get_position_info(self.symbol, positionIdx=2) # Short position
+            if hedge_pos['size'] == 0:
+                logging.info("No short hedge found. Opening initial short position.")
+                self.client.open_short_position(self.symbol, str(self.qty), initial_price)
+            else:
+                logging.info(f"Existing short hedge of size {hedge_pos['size']} found.")
+            
+            managed_pos = self.client.get_position_info(self.symbol, positionIdx=1) # Long position
+            self.managed_position_open = managed_pos['size'] > 0
+            self.managed_position_size = managed_pos['size']
+            logging.info(f"Initial check: Managed Long position is {'OPEN' if self.managed_position_open else 'CLOSED'} with size {self.managed_position_size}.")
 
-        # Check and set initial state for long position
-        long_pos = self.client.get_position_info(self.symbol, positionIdx=1)
-        if long_pos['size'] > 0:
-            self.long_position_open = True
-            self.long_position_size = long_pos['size']
-        logging.info(f"Initial check: Long position is {'OPEN' if self.long_position_open else 'CLOSED'} with size {self.long_position_size}.")
+        elif self.mode == 'S':
+            # --- Manage Short Mode: Open Long Hedge ---
+            hedge_pos = self.client.get_position_info(self.symbol, positionIdx=1) # Long position
+            if hedge_pos['size'] == 0:
+                logging.info("No long hedge found. Opening initial long position.")
+                self.client.open_long_position(self.symbol, str(self.qty), initial_price)
+            else:
+                logging.info(f"Existing long hedge of size {hedge_pos['size']} found.")
+
+            managed_pos = self.client.get_position_info(self.symbol, positionIdx=2) # Short position
+            self.managed_position_open = managed_pos['size'] > 0
+            self.managed_position_size = managed_pos['size']
+            logging.info(f"Initial check: Managed Short position is {'OPEN' if self.managed_position_open else 'CLOSED'} with size {self.managed_position_size}.")
 
     def manage_positions(self):
-        """The main loop to manage trading logic, driven by the price queue."""
+        """The main loop to manage trading logic, driven by the price queue and mode."""
         logging.info("Starting position management...")
         while True:
             try:
-                # Block until a new price is received, then drain queue for the latest price
                 current_price = self.price_queue.get()
                 while not self.price_queue.empty():
                     try:
@@ -73,38 +85,53 @@ class HedgingStrategy:
                     except queue.Empty:
                         break
 
-                logging.info(
-                    f"Price: {current_price} | "
-                    f"Long Target: {self.long_price} | "
-                    f"Long Pos Open: {self.long_position_open} | "
-                    f"Long Pos Size: {self.long_position_size}"
-                )
-
-                # Recalculate quantity for potential new orders
-                current_qty = round((self.hedge_amount_usdt * self.leverage) / current_price, 3)
-
-                # --- Trading Logic using internal state ---
-                if not self.long_position_open and current_price > self.long_price:
-                    if current_qty > 0:
-                        logging.info(f"Price above long target. Attempting to open long position with qty {current_qty}.")
-                        response = self.client.open_long_position(self.symbol, str(current_qty), current_price)
-                        if response and response.get('retCode') == 0:
-                            self.long_position_open = True
-                            self.long_position_size = current_qty # Store the size
-                            logging.info(f"Long position opened successfully. New size: {self.long_position_size}. State updated.")
-                    else:
-                        logging.warning(f"Calculated quantity is {current_qty}. Skipping order.")
-
-                elif self.long_position_open and current_price <= self.long_price:
-                    logging.info(f"Price below long target. Attempting to close long position of size {self.long_position_size}.")
-                    response = self.client.close_long_position(self.symbol, str(self.long_position_size), current_price)
-                    if response and response.get('retCode') == 0:
-                        self.long_position_open = False
-                        self.long_position_size = 0.0 # Reset size
-                        logging.info("Long position closed successfully. State updated.")
+                if self.mode == 'L':
+                    self._manage_long_logic(current_price)
+                elif self.mode == 'S':
+                    self._manage_short_logic(current_price)
 
             except queue.Empty:
-                time.sleep(1) # Wait if queue is empty
+                time.sleep(1)
             except Exception as e:
                 logging.error(f"An error occurred in the main loop: {e}")
                 time.sleep(30)
+
+    def _manage_long_logic(self, current_price):
+        """Handles the logic for opening/closing the managed LONG position."""
+        logging.info(f"Price: {current_price} | Long Target: {self.long_price} | Long Pos Open: {self.managed_position_open}")
+        current_qty = round((self.hedge_amount_usdt * self.leverage) / current_price, 3)
+
+        if not self.managed_position_open and current_price > self.long_price:
+            if current_qty > 0:
+                response = self.client.open_long_position(self.symbol, str(current_qty), current_price)
+                if response and response.get('retCode') == 0:
+                    self.managed_position_open = True
+                    self.managed_position_size = current_qty
+                    logging.info(f"Managed LONG position opened. Size: {self.managed_position_size}.")
+
+        elif self.managed_position_open and current_price <= self.long_price:
+            response = self.client.close_long_position(self.symbol, str(self.managed_position_size), current_price)
+            if response and response.get('retCode') == 0:
+                self.managed_position_open = False
+                self.managed_position_size = 0.0
+                logging.info("Managed LONG position closed.")
+
+    def _manage_short_logic(self, current_price):
+        """Handles the logic for opening/closing the managed SHORT position."""
+        logging.info(f"Price: {current_price} | Short Target: {self.short_price} | Short Pos Open: {self.managed_position_open}")
+        current_qty = round((self.hedge_amount_usdt * self.leverage) / current_price, 3)
+
+        if not self.managed_position_open and current_price < self.short_price:
+            if current_qty > 0:
+                response = self.client.open_short_position(self.symbol, str(current_qty), current_price)
+                if response and response.get('retCode') == 0:
+                    self.managed_position_open = True
+                    self.managed_position_size = current_qty
+                    logging.info(f"Managed SHORT position opened. Size: {self.managed_position_size}.")
+
+        elif self.managed_position_open and current_price >= self.short_price:
+            response = self.client.close_short_position(self.symbol, str(self.managed_position_size), current_price)
+            if response and response.get('retCode') == 0:
+                self.managed_position_open = False
+                self.managed_position_size = 0.0
+                logging.info("Managed SHORT position closed.")
