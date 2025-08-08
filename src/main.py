@@ -13,19 +13,20 @@ if __name__ == "__main__":
     else:
         try:
             while True:
-                env_choice = input("Select environment: (1) Testnet, (2) Mainnet: ")
-                if env_choice in ['1', '2']:
+                mode_choice = input("Select mode: (1) Demo mode, (2) Live trading mode: ")
+                if mode_choice in ['1', '2']:
                     break
                 else:
                     logging.warning("Invalid choice. Please enter 1 or 2.")
             
-            testnet = env_choice == '1'
+            demo = mode_choice == '1'
 
             symbol = input("Enter the coin to hedge against (e.g., 'BTCUSDT'): ").upper()
             short_price = float(input("Enter the price to open a short position: "))
             long_price = float(input("Enter the price to open a long position: "))
             hedge_amount_usdt = float(input("Enter the amount to hedge in USDT: "))
             leverage = int(input("Enter leverage (0-100, 0 for no change): "))
+            initial_delay = int(input("Enter initial delay in seconds before first position can be closed: "))
 
             if not 0 <= leverage <= 100:
                 raise ValueError("Leverage must be between 0 and 100.")
@@ -37,7 +38,7 @@ if __name__ == "__main__":
                 else:
                     logging.warning("Invalid choice. Please enter L or S.")
 
-            client = BybitClient(api_key=API_KEY, api_secret=API_SECRET, testnet=testnet)
+            client = BybitClient(api_key=API_KEY, api_secret=API_SECRET, testnet=False, demo=demo)
             strategy = HedgingStrategy(
                 client, 
                 symbol, 
@@ -45,7 +46,8 @@ if __name__ == "__main__":
                 short_price, 
                 hedge_amount_usdt, 
                 leverage,
-                mode
+                mode,
+                initial_delay
             )
             
             # Initial setup
