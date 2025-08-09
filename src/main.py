@@ -22,23 +22,40 @@ if __name__ == "__main__":
             demo = mode_choice == '1'
 
             symbol = input("Enter the coin to hedge against (e.g., 'BTCUSDT'): ").upper()
-            short_price = float(input("Enter the price to open a short position: "))
-            long_price = float(input("Enter the price to open a long position: "))
+            
+            # --- Auto-detection logic ---
+            client = BybitClient(api_key=API_KEY, api_secret=API_SECRET, testnet=False, demo=demo)
+            long_pos = client.get_position_info(symbol, positionIdx=1)
+            short_pos = client.get_position_info(symbol, positionIdx=2)
+
+            mode = None
+            long_price = 0
+            short_price = 0
+
+            if short_pos['size'] > 0:
+                logging.info(f"Existing short position of size {short_pos['size']} detected.")
+                logging.info("Starting in 'Manage Long' mode.")
+                mode = 'L'
+                long_price = float(input("Enter the LONG price to monitor against: "))
+            elif long_pos['size'] > 0:
+                logging.info(f"Existing long position of size {long_pos['size']} detected.")
+                logging.info("Starting in 'Manage Short' mode.")
+                mode = 'S'
+                short_price = float(input("Enter the SHORT price to monitor against: "))
+            else:
+                logging.warning("No existing positions found for this symbol.")
+                # If no positions, default to starting a short hedge and managing a long position
+                logging.info("Defaulting to 'Manage Long' mode. A new short hedge will be created.")
+                mode = 'L'
+                long_price = float(input("Enter the LONG price to open a managed position: "))
+
             hedge_amount_usdt = float(input("Enter the amount to hedge in USDT: "))
             leverage = int(input("Enter leverage (0-100, 0 for no change): "))
-            initial_delay = int(input("Enter initial delay in seconds before first position can be closed: "))
+            trade_delay = int(input("Enter delay in seconds between opening and closing a trade: "))
 
             if not 0 <= leverage <= 100:
                 raise ValueError("Leverage must be between 0 and 100.")
 
-            while True:
-                mode = input("Select mode: (L) Manage Long, (S) Manage Short: ").upper()
-                if mode in ['L', 'S']:
-                    break
-                else:
-                    logging.warning("Invalid choice. Please enter L or S.")
-
-            client = BybitClient(api_key=API_KEY, api_secret=API_SECRET, testnet=False, demo=demo)
             strategy = HedgingStrategy(
                 client, 
                 symbol, 
@@ -47,7 +64,7 @@ if __name__ == "__main__":
                 hedge_amount_usdt, 
                 leverage,
                 mode,
-                initial_delay
+                trade_delay
             )
             
             # Initial setup
