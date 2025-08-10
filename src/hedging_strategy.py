@@ -3,7 +3,7 @@ import time
 import queue
 
 class HedgingStrategy:
-    def __init__(self, client, symbol, long_price, short_price, hedge_amount_usdt, leverage, mode, trade_delay):
+    def __init__(self, client, symbol, long_price, short_price, hedge_amount_usdt, leverage, mode, delay_before_close, delay_after_close):
         self.client = client
         self.symbol = symbol
         self.long_price = long_price
@@ -11,13 +11,15 @@ class HedgingStrategy:
         self.hedge_amount_usdt = hedge_amount_usdt
         self.leverage = leverage
         self.mode = mode
-        self.trade_delay = trade_delay
+        self.delay_before_close = delay_before_close
+        self.delay_after_close = delay_after_close
         self.qty = 0
         self.price_queue = queue.Queue()
         self.managed_position_open = False
         self.managed_position_size = 0.0
-        # --- State variables for the trade delay ---
-        self.trade_cool_down_end_time = None # Timestamp when the delay for the current trade ends
+        # --- State variables for the new delay logic ---
+        self.close_cool_down_end_time = None # Prevents closing a new position too soon
+        self.re_entry_delay_end_time = None  # Prevents opening a new position too soon after a close
 
     def _ws_price_handler(self, message):
         """Callback function to handle incoming WebSocket price updates."""
@@ -49,11 +51,13 @@ class HedgingStrategy:
         logging.info(f"Initial quantity calculated: {self.qty} {self.symbol}")
 
         if self.mode == 'L':
-            # --- Manage Long Mode: Ensure Short Hedge Exists ---
+            # --- Manage Long Mode: Open Short Hedge ---
             hedge_pos = self.client.get_position_info(self.symbol, positionIdx=2) # Short position
             if hedge_pos['size'] == 0:
                 logging.info("No short hedge found. Opening initial short position.")
                 self.client.open_short_position(self.symbol, str(self.qty), initial_price)
+            else:
+                logging.info(f"Existing short hedge of size {hedge_pos['size']} found.")
             
             managed_pos = self.client.get_position_info(self.symbol, positionIdx=1) # Long position
             self.managed_position_open = managed_pos['size'] > 0
@@ -61,11 +65,13 @@ class HedgingStrategy:
             logging.info(f"Initial check: Managed Long position is {'OPEN' if self.managed_position_open else 'CLOSED'} with size {self.managed_position_size}.")
 
         elif self.mode == 'S':
-            # --- Manage Short Mode: Ensure Long Hedge Exists ---
+            # --- Manage Short Mode: Open Long Hedge ---
             hedge_pos = self.client.get_position_info(self.symbol, positionIdx=1) # Long position
             if hedge_pos['size'] == 0:
                 logging.info("No long hedge found. Opening initial long position.")
                 self.client.open_long_position(self.symbol, str(self.qty), initial_price)
+            else:
+                logging.info(f"Existing long hedge of size {hedge_pos['size']} found.")
 
             managed_pos = self.client.get_position_info(self.symbol, positionIdx=2) # Short position
             self.managed_position_open = managed_pos['size'] > 0
@@ -96,59 +102,77 @@ class HedgingStrategy:
                 time.sleep(30)
 
     def _manage_long_logic(self, current_price):
-        """Handles the logic for opening/closing the managed LONG position."""
+        """Handles the logic for opening/closing the managed LONG position with dual delays."""
         logging.info(f"Price: {current_price} | Long Target: {self.long_price} | Long Pos Open: {self.managed_position_open}")
         
-        # Check if a trade cool-down is active
-        if self.trade_cool_down_end_time and time.time() < self.trade_cool_down_end_time:
-            logging.info(f"Trade cool-down active. Position cannot be closed until {time.ctime(self.trade_cool_down_end_time)}.")
+        # Check for re-entry delay (prevents opening)
+        if self.re_entry_delay_end_time and time.time() < self.re_entry_delay_end_time:
+            logging.info(f"Re-entry delay active. Cannot open new position until {time.ctime(self.re_entry_delay_end_time)}.")
+            return
+
+        # Check for closing cool-down (prevents closing)
+        if self.close_cool_down_end_time and time.time() < self.close_cool_down_end_time:
+            logging.info(f"Closing cool-down active. Cannot close position until {time.ctime(self.close_cool_down_end_time)}.")
             if self.managed_position_open and current_price <= self.long_price:
                 return # Skip closing logic during cool-down
 
         current_qty = round((self.hedge_amount_usdt * self.leverage) / current_price, 3)
 
+        # --- Opening Logic ---
         if not self.managed_position_open and current_price > self.long_price:
             if current_qty > 0:
                 response = self.client.open_long_position(self.symbol, str(current_qty), current_price)
                 if response and response.get('retCode') == 0:
                     self.managed_position_open = True
                     self.managed_position_size = current_qty
-                    self.trade_cool_down_end_time = time.time() + self.trade_delay # Start cool-down
-                    logging.info(f"Managed LONG position opened. Size: {self.managed_position_size}. Cool-down started for {self.trade_delay}s.")
+                    self.re_entry_delay_end_time = None # Clear re-entry delay
+                    self.close_cool_down_end_time = time.time() + self.delay_before_close # Start pre-close cool-down
+                    logging.info(f"Managed LONG position opened. Size: {self.managed_position_size}. Pre-close cool-down started for {self.delay_before_close}s.")
 
+        # --- Closing Logic ---
         elif self.managed_position_open and current_price <= self.long_price:
             response = self.client.close_long_position(self.symbol, str(self.managed_position_size), current_price)
             if response and response.get('retCode') == 0:
                 self.managed_position_open = False
                 self.managed_position_size = 0.0
-                self.trade_cool_down_end_time = None # Clear cool-down
-                logging.info("Managed LONG position closed.")
+                self.close_cool_down_end_time = None # Clear pre-close cool-down
+                self.re_entry_delay_end_time = time.time() + self.delay_after_close # Start post-close re-entry delay
+                logging.info(f"Managed LONG position closed. Re-entry delay started for {self.delay_after_close}s.")
 
     def _manage_short_logic(self, current_price):
-        """Handles the logic for opening/closing the managed SHORT position."""
+        """Handles the logic for opening/closing the managed SHORT position with dual delays."""
         logging.info(f"Price: {current_price} | Short Target: {self.short_price} | Short Pos Open: {self.managed_position_open}")
 
-        # Check if a trade cool-down is active
-        if self.trade_cool_down_end_time and time.time() < self.trade_cool_down_end_time:
-            logging.info(f"Trade cool-down active. Position cannot be closed until {time.ctime(self.trade_cool_down_end_time)}.")
+        # Check for re-entry delay (prevents opening)
+        if self.re_entry_delay_end_time and time.time() < self.re_entry_delay_end_time:
+            logging.info(f"Re-entry delay active. Cannot open new position until {time.ctime(self.re_entry_delay_end_time)}.")
+            return
+
+        # Check for closing cool-down (prevents closing)
+        if self.close_cool_down_end_time and time.time() < self.close_cool_down_end_time:
+            logging.info(f"Closing cool-down active. Cannot close position until {time.ctime(self.close_cool_down_end_time)}.")
             if self.managed_position_open and current_price >= self.short_price:
                 return # Skip closing logic during cool-down
 
         current_qty = round((self.hedge_amount_usdt * self.leverage) / current_price, 3)
 
+        # --- Opening Logic ---
         if not self.managed_position_open and current_price < self.short_price:
             if current_qty > 0:
                 response = self.client.open_short_position(self.symbol, str(current_qty), current_price)
                 if response and response.get('retCode') == 0:
                     self.managed_position_open = True
                     self.managed_position_size = current_qty
-                    self.trade_cool_down_end_time = time.time() + self.trade_delay # Start cool-down
-                    logging.info(f"Managed SHORT position opened. Size: {self.managed_position_size}. Cool-down started for {self.trade_delay}s.")
+                    self.re_entry_delay_end_time = None # Clear re-entry delay
+                    self.close_cool_down_end_time = time.time() + self.delay_before_close # Start pre-close cool-down
+                    logging.info(f"Managed SHORT position opened. Size: {self.managed_position_size}. Pre-close cool-down started for {self.delay_before_close}s.")
 
+        # --- Closing Logic ---
         elif self.managed_position_open and current_price >= self.short_price:
             response = self.client.close_short_position(self.symbol, str(self.managed_position_size), current_price)
             if response and response.get('retCode') == 0:
                 self.managed_position_open = False
                 self.managed_position_size = 0.0
-                self.trade_cool_down_end_time = None # Clear cool-down
-                logging.info("Managed SHORT position closed.")
+                self.close_cool_down_end_time = None # Clear pre-close cool-down
+                self.re_entry_delay_end_time = time.time() + self.delay_after_close # Start post-close re-entry delay
+                logging.info(f"Managed SHORT position closed. Re-entry delay started for {self.delay_after_close}s.")
