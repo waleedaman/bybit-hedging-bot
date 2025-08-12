@@ -4,7 +4,7 @@ from pybit.unified_trading import HTTP, WebSocket
 
 class BybitClient:
     def __init__(self, demo, api_key, api_secret, testnet=False):
-        self.client = HTTP(demo=demo, testnet=testnet, api_key=api_key, api_secret=api_secret, recv_window=10000)
+        self.client = HTTP(demo=demo, testnet=testnet, api_key=api_key, api_secret=api_secret, recv_window=20000)
         self.is_leverage = False
         self.ws_client = None
         self.last_price = None
